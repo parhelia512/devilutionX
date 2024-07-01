@@ -1033,6 +1033,7 @@ void CycleAutomapType()
 void CheckPanelInfo()
 {
 	panelflag = false;
+	InfoString = StringOrView {};
 	const Point mainPanelPosition = GetMainPanel().position;
 	for (int i = 0; i < PanelButtonIndex; i++) {
 		int xend = PanBtnPos[i].x + mainPanelPosition.x + PanBtnPos[i].w;
@@ -1212,7 +1213,7 @@ void DrawInfoBox(const Surface &out)
 			GetObjectStr(*ObjectUnderCursor);
 		if (pcursmonst != -1) {
 			if (leveltype != DTYPE_TOWN) {
-				const auto &monster = Monsters[pcursmonst];
+				const Monster &monster = Monsters[pcursmonst];
 				InfoColor = UiFlags::ColorWhite;
 				InfoString = monster.name();
 				if (monster.isUnique()) {

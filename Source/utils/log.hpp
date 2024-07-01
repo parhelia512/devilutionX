@@ -15,7 +15,7 @@
 namespace devilution {
 
 // Local definition to fix compilation issue due to header conflict.
-[[noreturn]] void app_fatal(std::string_view);
+[[noreturn]] extern void app_fatal(std::string_view);
 
 enum class LogCategory {
 	Application = SDL_LOG_CATEGORY_APPLICATION,
@@ -73,6 +73,7 @@ void Log(std::string_view fmt, Args &&...args)
 template <typename... Args>
 void LogVerbose(LogCategory category, std::string_view fmt, Args &&...args)
 {
+	if (SDL_LogGetPriority(static_cast<int>(category)) > SDL_LOG_PRIORITY_VERBOSE) return;
 	auto str = detail::format(fmt, std::forward<Args>(args)...);
 	SDL_LogVerbose(static_cast<int>(category), "%s", str.c_str());
 }
@@ -86,6 +87,7 @@ void LogVerbose(std::string_view fmt, Args &&...args)
 template <typename... Args>
 void LogDebug(LogCategory category, std::string_view fmt, Args &&...args)
 {
+	if (SDL_LogGetPriority(static_cast<int>(category)) > SDL_LOG_PRIORITY_DEBUG) return;
 	auto str = detail::format(fmt, std::forward<Args>(args)...);
 	SDL_LogDebug(static_cast<int>(category), "%s", str.c_str());
 }

@@ -36,6 +36,7 @@
 #include "engine/load_cel.hpp"
 #include "engine/load_file.hpp"
 #include "engine/random.hpp"
+#include "engine/render/clx_render.hpp"
 #include "engine/sound.h"
 #include "gamemenu.h"
 #include "gmenu.h"
@@ -1391,7 +1392,7 @@ void UnstuckChargers()
 		}
 	}
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
-		auto &monster = Monsters[ActiveMonsters[i]];
+		Monster &monster = Monsters[ActiveMonsters[i]];
 		if (monster.mode == MonsterMode::Charge)
 			monster.mode = MonsterMode::Stand;
 	}
@@ -1400,7 +1401,7 @@ void UnstuckChargers()
 void UpdateMonsterLights()
 {
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
-		auto &monster = Monsters[ActiveMonsters[i]];
+		Monster &monster = Monsters[ActiveMonsters[i]];
 
 		if ((monster.flags & MFLAG_BERSERK) != 0) {
 			int lightRadius = leveltype == DTYPE_NEST ? 9 : 3;
@@ -2860,6 +2861,7 @@ void LoadGameLevel(bool firstflag, lvl_entry lvldir)
 	MakeLightTable();
 	SetDungeonMicros();
 	LoadLvlGFX();
+	ClearClxDrawCache();
 	IncProgress();
 
 	if (firstflag) {

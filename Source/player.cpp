@@ -60,10 +60,7 @@ namespace {
 
 struct DirectionSettings {
 	Direction dir;
-	DisplacementOf<int8_t> tileAdd;
-	DisplacementOf<int8_t> map;
 	PLR_MODE walkMode;
-	void (*walkModeHandler)(Player &, const DirectionSettings &);
 };
 
 void UpdatePlayerLightOffset(Player &player)
@@ -75,48 +72,22 @@ void UpdatePlayerLightOffset(Player &player)
 	ChangeLightOffset(player.lightId, offset.screenToLight());
 }
 
-void WalkNorthwards(Player &player, const DirectionSettings &walkParams)
+void WalkInDirection(Player &player, const DirectionSettings &walkParams)
 {
 	player.occupyTile(player.position.future, true);
-	player.position.temp = player.position.tile + walkParams.tileAdd;
-}
-
-void WalkSouthwards(Player &player, const DirectionSettings & /*walkParams*/)
-{
-	player.position.temp = player.position.tile;
-	player.position.tile = player.position.future; // Move player to the next tile to maintain correct render order
-	player.occupyTile(player.position.temp, true);
-	player.occupyTile(player.position.tile, false);
-	// BUGFIX: missing `if (leveltype != DTYPE_TOWN) {` for call to ChangeLightXY and PM_ChangeLightOff.
-	ChangeLightXY(player.lightId, player.position.tile);
-	UpdatePlayerLightOffset(player);
-}
-
-void WalkSideways(Player &player, const DirectionSettings &walkParams)
-{
-	Point const nextPosition = player.position.tile + walkParams.map;
-
-	player.occupyTile(player.position.tile, true);
-	player.occupyTile(player.position.future, false);
-
-	if (leveltype != DTYPE_TOWN) {
-		ChangeLightXY(player.lightId, nextPosition);
-		UpdatePlayerLightOffset(player);
-	}
-
-	player.position.temp = player.position.future;
+	player.position.temp = player.position.tile + walkParams.dir;
 }
 
 constexpr std::array<const DirectionSettings, 8> WalkSettings { {
 	// clang-format off
-	{ Direction::South,     {  1,  1 }, { 0, 0 }, PM_WALK_SOUTHWARDS, WalkSouthwards },
-	{ Direction::SouthWest, {  0,  1 }, { 0, 0 }, PM_WALK_SOUTHWARDS, WalkSouthwards },
-	{ Direction::West,      { -1,  1 }, { 0, 1 }, PM_WALK_SIDEWAYS,   WalkSideways   },
-	{ Direction::NorthWest, { -1,  0 }, { 0, 0 }, PM_WALK_NORTHWARDS, WalkNorthwards },
-	{ Direction::North,     { -1, -1 }, { 0, 0 }, PM_WALK_NORTHWARDS, WalkNorthwards },
-	{ Direction::NorthEast, {  0, -1 }, { 0, 0 }, PM_WALK_NORTHWARDS, WalkNorthwards },
-	{ Direction::East,      {  1, -1 }, { 1, 0 }, PM_WALK_SIDEWAYS,   WalkSideways   },
-	{ Direction::SouthEast, {  1,  0 }, { 0, 0 }, PM_WALK_SOUTHWARDS, WalkSouthwards }
+	{ Direction::South,     PM_WALK_SOUTHWARDS },
+	{ Direction::SouthWest, PM_WALK_SOUTHWARDS },
+	{ Direction::West,      PM_WALK_SIDEWAYS   },
+	{ Direction::NorthWest, PM_WALK_NORTHWARDS },
+	{ Direction::North,     PM_WALK_NORTHWARDS },
+	{ Direction::NorthEast, PM_WALK_NORTHWARDS },
+	{ Direction::East,      PM_WALK_SIDEWAYS   },
+	{ Direction::SouthEast, PM_WALK_SOUTHWARDS }
 	// clang-format on
 } };
 
@@ -150,9 +121,9 @@ void HandleWalkMode(Player &player, Direction dir)
 	player._pdir = dir;
 
 	// The player's tile position after finishing this movement action
-	player.position.future = player.position.tile + dirModeParams.tileAdd;
+	player.position.future = player.position.tile + dirModeParams.dir;
 
-	dirModeParams.walkModeHandler(player, dirModeParams);
+	WalkInDirection(player, dirModeParams);
 
 	player.tempDirection = dirModeParams.dir;
 	player._pmode = dirModeParams.walkMode;
@@ -358,7 +329,7 @@ void DeadItem(Player &player, Item &&itm, Displacement direction)
 int DropGold(Player &player, int amount, bool skipFullStacks)
 {
 	for (int i = 0; i < player._pNumInv && amount > 0; i++) {
-		auto &item = player.InvList[i];
+		Item &item = player.InvList[i];
 
 		if (item._itype != ItemType::Gold || (skipFullStacks && item._ivalue == MaxGold))
 			continue;
@@ -430,7 +401,7 @@ void InitLevelChange(Player &player)
 /**
  * @brief Continue movement towards new tile
  */
-bool DoWalk(Player &player, int variant)
+bool DoWalk(Player &player)
 {
 	// Play walking sound effect on certain animation frames
 	if (*sgOptions.Audio.walkingSound && (leveltype != DTYPE_TOWN || sgGameInitInfo.bRunInTown == 0)) {
@@ -447,22 +418,10 @@ bool DoWalk(Player &player, int variant)
 	}
 
 	// We reached the new tile -> update the player's tile position
-	switch (variant) {
-	case PM_WALK_NORTHWARDS:
-		dPlayer[player.position.tile.x][player.position.tile.y] = 0;
-		player.position.tile = player.position.temp;
-		player.occupyTile(player.position.tile, false);
-		break;
-	case PM_WALK_SOUTHWARDS:
-		dPlayer[player.position.temp.x][player.position.temp.y] = 0;
-		break;
-	case PM_WALK_SIDEWAYS:
-		dPlayer[player.position.tile.x][player.position.tile.y] = 0;
-		player.position.tile = player.position.temp;
-		// dPlayer is set here for backwards comparability, without it the player would be invisible if loaded from a vanilla save.
-		player.occupyTile(player.position.tile, false);
-		break;
-	}
+	dPlayer[player.position.tile.x][player.position.tile.y] = 0;
+	player.position.tile = player.position.temp;
+	// dPlayer is set here for backwards compatibility; without it, the player would be invisible if loaded from a vanilla save.
+	player.occupyTile(player.position.tile, false);
 
 	// Update the coordinates for lighting and vision entries for the player
 	if (leveltype != DTYPE_TOWN) {
@@ -1507,6 +1466,7 @@ void ValidatePlayer()
 	}
 
 	myPlayer._pMemSpells &= msk;
+	myPlayer._pInfraFlag = false;
 }
 
 void CheckCheatStats(Player &player)
@@ -1819,7 +1779,7 @@ void Player::RestorePartialMana()
 
 void Player::ReadySpellFromEquipment(inv_body_loc bodyLocation, bool forceSpell)
 {
-	auto &item = InvBody[bodyLocation];
+	Item &item = InvBody[bodyLocation];
 	if (item._itype == ItemType::Staff && IsValidSpell(item._iSpell) && item._iCharges > 0 && item._iStatFlag) {
 		if (forceSpell || _pRSpell == SpellID::Invalid || _pRSplType == SpellType::Invalid) {
 			_pRSpell = item._iSpell;
@@ -1917,19 +1877,19 @@ void Player::UpdatePreviewCelSprite(_cmd_id cmdId, Point point, uint16_t wParam1
 
 	switch (cmdId) {
 	case _cmd_id::CMD_RATTACKID: {
-		auto &monster = Monsters[wParam1];
+		Monster &monster = Monsters[wParam1];
 		dir = GetDirection(position.future, monster.position.future);
 		graphic = player_graphic::Attack;
 		break;
 	}
 	case _cmd_id::CMD_SPELLID: {
-		auto &monster = Monsters[wParam1];
+		Monster &monster = Monsters[wParam1];
 		dir = GetDirection(position.future, monster.position.future);
 		graphic = GetPlayerGraphicForSpell(static_cast<SpellID>(wParam2));
 		break;
 	}
 	case _cmd_id::CMD_ATTACKID: {
-		auto &monster = Monsters[wParam1];
+		Monster &monster = Monsters[wParam1];
 		point = monster.position.future;
 		minimalWalkDistance = 2;
 		if (!CanTalkToMonst(monster)) {
@@ -2174,9 +2134,13 @@ void LoadPlrGFX(Player &player, player_graphic graphic)
 	*fmt::format_to(pszName, R"(plrgfx\{0}\{1}\{1}{2})", path, std::string_view(prefix, 3), szCel) = 0;
 	const uint16_t animationWidth = GetPlayerSpriteWidth(cls, graphic, animWeaponId);
 	animationData.sprites = LoadCl2Sheet(pszName, animationWidth);
-	std::optional<std::array<uint8_t, 256>> trn = GetClassTRN(player);
-	if (trn) {
-		ClxApplyTrans(*animationData.sprites, trn->data());
+	std::optional<std::array<uint8_t, 256>> graphicTRN = GetPlayerGraphicTRN(pszName);
+	if (graphicTRN) {
+		ClxApplyTrans(*animationData.sprites, graphicTRN->data());
+	}
+	std::optional<std::array<uint8_t, 256>> classTRN = GetClassTRN(player);
+	if (classTRN) {
+		ClxApplyTrans(*animationData.sprites, classTRN->data());
 	}
 }
 
@@ -2714,7 +2678,7 @@ StartPlayerKill(Player &player, DeathReason deathReason)
 	if (&player != MyPlayer && dropItems) {
 		// Ensure that items are removed for remote players
 		// The dropped items will be synced seperatly (by the remote client)
-		for (auto &item : player.InvBody) {
+		for (Item &item : player.InvBody) {
 			item.clear();
 		}
 		CalcPlrInv(player, false);
@@ -2768,7 +2732,7 @@ StartPlayerKill(Player &player, DeathReason deathReason)
 			}
 			if (dropItems) {
 				Direction pdd = player._pdir;
-				for (auto &item : player.InvBody) {
+				for (Item &item : player.InvBody) {
 					pdd = Left(pdd);
 					DeadItem(player, item.pop(), Displacement(pdd));
 				}
@@ -3049,7 +3013,7 @@ void ProcessPlayers()
 				case PM_WALK_NORTHWARDS:
 				case PM_WALK_SOUTHWARDS:
 				case PM_WALK_SIDEWAYS:
-					tplayer = DoWalk(player, player._pmode);
+					tplayer = DoWalk(player);
 					break;
 				case PM_ATTACK:
 					tplayer = DoAttack(player);

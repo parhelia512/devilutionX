@@ -165,7 +165,7 @@ void FindItemOrObject()
 
 			continue;
 		}
-		auto &item = Items[itemId];
+		Item &item = Items[itemId];
 		if (item.isEmpty() || item._iSelFlag == 0) {
 			continue;
 		}
@@ -266,7 +266,7 @@ void FindRangedTarget()
 
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
 		int mi = ActiveMonsters[i];
-		const auto &monster = Monsters[mi];
+		const Monster &monster = Monsters[mi];
 
 		if (!CanTargetMonster(monster))
 			continue;
@@ -332,7 +332,7 @@ void FindMeleeTarget()
 
 				if (dMonster[dx][dy] != 0) {
 					const int mi = std::abs(dMonster[dx][dy]) - 1;
-					const auto &monster = Monsters[mi];
+					const Monster &monster = Monsters[mi];
 					if (CanTargetMonster(monster)) {
 						const bool newCanTalk = CanTalkToMonst(monster);
 						if (pcursmonst != -1 && !canTalk && newCanTalk)
@@ -1484,7 +1484,7 @@ std::string_view ControlTypeToString(ControlTypes controlType)
 
 void LogControlDeviceAndModeChange(ControlTypes newControlDevice, ControlTypes newControlMode)
 {
-	if (SDL_LOG_PRIORITY_VERBOSE < SDL_LogGetPriority(SDL_LOG_CATEGORY_APPLICATION))
+	if (SDL_LogGetPriority(SDL_LOG_CATEGORY_APPLICATION) > SDL_LOG_PRIORITY_VERBOSE)
 		return;
 	if (newControlDevice == ControlDevice && newControlMode == ControlMode)
 		return;
@@ -1514,7 +1514,7 @@ std::string_view GamepadTypeToString(GamepadLayout gamepadLayout)
 
 void LogGamepadChange(GamepadLayout newGamepad)
 {
-	if (SDL_LOG_PRIORITY_VERBOSE < SDL_LogGetPriority(SDL_LOG_CATEGORY_APPLICATION))
+	if (SDL_LogGetPriority(SDL_LOG_CATEGORY_APPLICATION) > SDL_LOG_PRIORITY_VERBOSE)
 		return;
 	constexpr auto DebugChange = [](GamepadLayout before, GamepadLayout after) -> std::string {
 		if (before == after)

@@ -758,7 +758,7 @@ void DeltaLeaveSync(uint8_t bLevel)
 
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
 		const unsigned ma = ActiveMonsters[i];
-		auto &monster = Monsters[ma];
+		Monster &monster = Monsters[ma];
 		if (monster.hitPoints == 0)
 			continue;
 		DMonsterStr &delta = deltaLevel.monster[ma];
@@ -1027,6 +1027,9 @@ bool IsGItemValid(const TCmdGItem &message)
 
 bool IsPItemValid(const TCmdPItem &message, const Player &player)
 {
+	if (!gbIsMultiplayer)
+		return true;
+
 	const Point position { message.x, message.y };
 
 	if (!InDungeonBounds(position))
@@ -1818,7 +1821,7 @@ size_t OnMonstDamage(const TCmd *pCmd, Player &player)
 	if (gbBufferMsgs != 1) {
 		if (&player != MyPlayer) {
 			if (player.isOnActiveLevel() && monsterIdx < MaxMonsters) {
-				auto &monster = Monsters[monsterIdx];
+				Monster &monster = Monsters[monsterIdx];
 				monster.tag(player);
 				if (monster.hitPoints > 0) {
 					monster.hitPoints -= SDL_SwapLE32(message.dwDam);
@@ -2425,6 +2428,7 @@ void PrepareEarForNetwork(const Item &item, TEar &ear)
 void RecreateItem(const Player &player, const TItem &messageItem, Item &item)
 {
 	const uint32_t dwBuff = SDL_SwapLE32(messageItem.dwBuff);
+	item.dwBuff = dwBuff;
 	RecreateItem(player, item,
 	    static_cast<_item_indexes>(SDL_SwapLE16(messageItem.wIndx)), SDL_SwapLE16(messageItem.wCI),
 	    SDL_SwapLE32(messageItem.dwSeed), SDL_SwapLE16(messageItem.wValue), (dwBuff & CF_HELLFIRE) != 0);
@@ -2438,7 +2442,6 @@ void RecreateItem(const Player &player, const TItem &messageItem, Item &item)
 		item._iPLToHit = ClampToHit(item, static_cast<uint8_t>(SDL_SwapLE16(messageItem.wToHit)));
 		item._iMaxDam = ClampMaxDam(item, static_cast<uint8_t>(SDL_SwapLE16(messageItem.wMaxDam)));
 	}
-	item.dwBuff = dwBuff;
 }
 
 void ClearLastSentPlayerCmd()
@@ -2700,7 +2703,7 @@ void DeltaLoadLevel()
 			if (deltaLevel.monster[i].position.x == 0xFF)
 				continue;
 
-			auto &monster = Monsters[i];
+			Monster &monster = Monsters[i];
 			M_ClearSquares(monster);
 			{
 				const WorldTilePosition position = deltaLevel.monster[i].position;

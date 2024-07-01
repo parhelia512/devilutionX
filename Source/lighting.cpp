@@ -24,6 +24,8 @@ Light Lights[MAXLIGHTS];
 std::array<uint8_t, MAXLIGHTS> ActiveLights;
 int ActiveLightCount;
 std::array<std::array<uint8_t, 256>, NumLightingLevels> LightTables;
+uint8_t *FullyLitLightTable = nullptr;
+uint8_t *FullyDarkLightTable = nullptr;
 std::array<uint8_t, 256> InfravisionTable;
 std::array<uint8_t, 256> StoneTable;
 std::array<uint8_t, 256> PauseTable;
@@ -142,7 +144,7 @@ bool TileAllowsLight(Point position)
 {
 	if (!InDungeonBounds(position))
 		return false;
-	return !TileHasAny(dPiece[position.x][position.y], TileProperties::BlockLight);
+	return !TileHasAny(position, TileProperties::BlockLight);
 }
 
 void DoVisionFlags(Point position, MapExplorationType doAutomap, bool visible)
@@ -294,7 +296,7 @@ void DoVision(Point position, uint8_t radius, MapExplorationType doAutomap, bool
 				Point crawl = position + VisionCrawlTable[j][k] * factor;
 				if (!InDungeonBounds(crawl))
 					break;
-				bool blockerFlag = TileHasAny(dPiece[crawl.x][crawl.y], TileProperties::BlockLight);
+				bool blockerFlag = TileHasAny(crawl, TileProperties::BlockLight);
 				bool tileOK = !blockerFlag;
 
 				if (VisionCrawlTable[j][k].deltaX > 0 && VisionCrawlTable[j][k].deltaY > 0) {
@@ -322,8 +324,8 @@ void MakeLightTable()
 {
 	// Generate 16 gradually darker translation tables for doing lighting
 	uint8_t shade = 0;
-	constexpr uint8_t black = 0;
-	constexpr uint8_t white = 255;
+	constexpr uint8_t Black = 0;
+	constexpr uint8_t White = 255;
 	for (auto &lightTable : LightTables) {
 		uint8_t colorIndex = 0;
 		for (uint8_t steps : { 16, 16, 16, 16, 16, 16, 16, 16, 8, 8, 8, 8, 16, 16, 16, 16, 16, 16 }) {
@@ -331,13 +333,13 @@ void MakeLightTable()
 			const uint8_t shadeStart = colorIndex;
 			const uint8_t shadeEnd = shadeStart + steps - 1;
 			for (uint8_t step = 0; step < steps; step++) {
-				if (colorIndex == black) {
-					lightTable[colorIndex++] = black;
+				if (colorIndex == Black) {
+					lightTable[colorIndex++] = Black;
 					continue;
 				}
 				int color = shadeStart + step + shading;
-				if (color > shadeEnd || color == white)
-					color = black;
+				if (color > shadeEnd || color == White)
+					color = Black;
 				lightTable[colorIndex++] = color;
 			}
 		}
@@ -345,27 +347,37 @@ void MakeLightTable()
 	}
 
 	LightTables[15] = {}; // Make last shade pitch black
+	FullyLitLightTable = LightTables[0].data();
+	FullyDarkLightTable = LightTables[LightsMax].data();
 
 	if (leveltype == DTYPE_HELL) {
 		// Blood wall lighting
 		const auto shades = static_cast<int>(LightTables.size() - 1);
 		for (int i = 0; i < shades; i++) {
 			auto &lightTable = LightTables[i];
-			constexpr int range = 16;
-			for (int j = 0; j < range; j++) {
-				uint8_t color = ((range - 1) << 4) / shades * (shades - i) / range * (j + 1);
+			constexpr int Range = 16;
+			for (int j = 0; j < Range; j++) {
+				uint8_t color = ((Range - 1) << 4) / shades * (shades - i) / Range * (j + 1);
 				color = 1 + (color >> 4);
-				lightTable[j + 1] = color;
-				lightTable[31 - j] = color;
+				int idx = j + 1;
+				lightTable[idx] = color;
+				idx = 31 - j;
+				lightTable[idx] = color;
 			}
 		}
+		FullyLitLightTable = nullptr; // A color map is used for the ceiling animation, so even fully lit tiles have a color map
 	} else if (IsAnyOf(leveltype, DTYPE_NEST, DTYPE_CRYPT)) {
 		// Make the lava fully bright
 		for (auto &lightTable : LightTables)
 			std::iota(lightTable.begin(), lightTable.begin() + 16, uint8_t { 0 });
 		LightTables[15][0] = 0;
 		std::fill_n(LightTables[15].begin() + 1, 15, 1);
+		FullyDarkLightTable = nullptr; // Tiles in Hellfire levels are never completely black
 	}
+
+	// Verify that fully lit and fully dark light table optimizations are correctly enabled/disabled (nullptr = disabled)
+	assert((FullyLitLightTable != nullptr) == (LightTables[0][0] == 0 && std::adjacent_find(LightTables[0].begin(), LightTables[0].end() - 1, [](auto x, auto y) { return (x + 1) != y; }) == LightTables[0].end() - 1));
+	assert((FullyDarkLightTable != nullptr) == (std::all_of(LightTables[LightsMax].begin(), LightTables[LightsMax].end(), [](auto x) { return x == 0; })));
 
 	LoadFileInMem("plrgfx\\infra.trn", InfravisionTable);
 	LoadFileInMem("plrgfx\\stone.trn", StoneTable);
@@ -391,7 +403,8 @@ void MakeLightTable()
 					// Leaner falloff
 					scaled = factor * maxDarkness;
 				}
-				LightFalloffs[radius][distance] = static_cast<uint8_t>(scaled + 0.5F); // round up
+				scaled += 0.5F; // Round up
+				LightFalloffs[radius][distance] = static_cast<uint8_t>(scaled);
 			}
 		}
 	}
@@ -581,7 +594,7 @@ void ProcessLightList()
 			i--;
 			continue;
 		}
-		if (TileHasAny(dPiece[light.position.tile.x][light.position.tile.y], TileProperties::Solid))
+		if (TileHasAny(light.position.tile, TileProperties::Solid))
 			continue; // Monster hidden in a wall, don't spoil the surprise
 		DoLighting(light.position.tile, light.radius, light.position.offset);
 	}
