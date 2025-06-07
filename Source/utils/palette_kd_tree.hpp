@@ -99,11 +99,18 @@ private:
 	using RGB = std::array<uint8_t, 3>;
 
 public:
-	explicit PaletteKdTree(const SDL_Color palette[256])
+	/**
+	 * @brief Constructs a PaletteKdTree
+	 *
+	 * The palette is used as points in the tree.
+	 * Colors between skipFrom and skipTo (inclusive) are skipped.
+	 */
+	explicit PaletteKdTree(const SDL_Color palette[256], int skipFrom, int skipTo)
 	    : palette_(palette)
 	{
-		populatePivots();
-		for (unsigned i = 0; i < 256; ++i) {
+		populatePivots(skipFrom, skipTo);
+		for (int i = 0; i < 256; ++i) {
+			if (i >= skipFrom && i <= skipTo) continue;
 			tree_.leafForColor(palette[i]).values.emplace_back(i);
 		}
 	}
@@ -117,21 +124,27 @@ public:
 	}
 
 private:
-	static uint8_t getMedian(uint8_t *begin, uint8_t *end)
+	[[nodiscard]] static uint8_t getMedian(std::span<const uint8_t> elements)
 	{
-		uint8_t *middleItr = begin + ((end - begin) / 2);
-		std::nth_element(begin, middleItr, end);
-		if ((end - begin) % 2 == 0) {
-			const uint8_t leftMiddleItr = *std::max_element(begin, middleItr);
-			return (leftMiddleItr + *middleItr) / 2;
+		uint8_t min = 255;
+		uint8_t max = 0;
+		uint_fast16_t count[256] = {};
+		for (const uint8_t x : elements) {
+			min = std::min(x, min);
+			max = std::max(x, max);
+			++count[x];
 		}
-		return *middleItr;
-	}
 
-	template <typename C>
-	static uint8_t getMedian(C &c)
-	{
-		return getMedian(c.data(), c.data() + c.size());
+		const auto medianTarget = static_cast<uint_fast16_t>((elements.size() + 1) / 2);
+		uint_fast16_t partialSum = count[min];
+		for (uint_fast16_t i = min + 1; i <= max; ++i) {
+			if (partialSum >= medianTarget) return i;
+			partialSum += count[i];
+		}
+
+		// Can't find a helpful pivot so return 255 so that
+		// NN lookups through this node mostly go to the left child.
+		return 255;
 	}
 
 	template <size_t RemainingDepth, size_t N>
@@ -166,26 +179,27 @@ private:
 	}
 
 	template <size_t TargetDepth>
-	void populatePivotsForTargetDepth()
+	void populatePivotsForTargetDepth(int skipFrom, int skipTo)
 	{
 		constexpr size_t NumSubdivisions = 1U << TargetDepth;
 		std::array<StaticVector<uint8_t, 256>, NumSubdivisions> subdivisions;
 		const std::span<StaticVector<uint8_t, 256>, NumSubdivisions> subdivisionsSpan { subdivisions };
-		for (unsigned i = 0; i < 256; ++i) {
+		for (int i = 0; i < 256; ++i) {
+			if (i >= skipFrom && i <= skipTo) continue;
 			maybeAddToSubdivisionForMedian(tree_, i, subdivisionsSpan);
 		}
 		setPivotsRecursively(tree_, subdivisionsSpan);
 	}
 
 	template <size_t... TargetDepths>
-	void populatePivotsImpl(std::integer_sequence<size_t, TargetDepths...> intSeq) // NOLINT(misc-unused-parameters)
+	void populatePivotsImpl(int skipFrom, int skipTo, std::index_sequence<TargetDepths...> intSeq) // NOLINT(misc-unused-parameters)
 	{
-		(populatePivotsForTargetDepth<TargetDepths>(), ...);
+		(populatePivotsForTargetDepth<TargetDepths>(skipFrom, skipTo), ...);
 	}
 
-	void populatePivots()
+	void populatePivots(int skipFrom, int skipTo)
 	{
-		populatePivotsImpl(std::make_integer_sequence<size_t, PaletteKdTreeDepth> {});
+		populatePivotsImpl(skipFrom, skipTo, std::make_index_sequence<PaletteKdTreeDepth> {});
 	}
 
 	template <size_t RemainingDepth>
