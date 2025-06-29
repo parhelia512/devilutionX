@@ -770,7 +770,7 @@ void DeltaImportData(_cmd_id cmd, uint32_t recvOffset, int pnum)
 
 #ifdef USE_PKWARE
 	if (sgRecvBuf[0] != std::byte { 0 }) {
-		deltaSize = PkwareDecompress(&sgRecvBuf[1], deltaSize, sizeof(sgRecvBuf) - 1);
+		deltaSize = PkwareDecompress(&sgRecvBuf[1], static_cast<uint32_t>(deltaSize), sizeof(sgRecvBuf) - 1);
 		if (deltaSize == 0) {
 			Log("PKWare decompression failure, dropping player {}", pnum);
 			SNetDropPlayer(pnum, LEAVE_DROP);
@@ -1730,8 +1730,6 @@ size_t OnSpellWall(const TCmdLocParam4 &message, Player &player)
 		return sizeof(message);
 	if (!player.isOnActiveLevel())
 		return sizeof(message);
-	if (leveltype == DTYPE_TOWN)
-		return sizeof(message);
 	if (!InDungeonBounds(position))
 		return sizeof(message);
 	const int16_t wParamDirection = SDL_SwapLE16(message.wParam3);
@@ -1758,8 +1756,6 @@ size_t OnSpellTile(const TCmdLocParam3 &message, Player &player)
 	if (gbBufferMsgs == 1)
 		return sizeof(message);
 	if (!player.isOnActiveLevel())
-		return sizeof(message);
-	if (leveltype == DTYPE_TOWN)
 		return sizeof(message);
 	if (!InDungeonBounds(position))
 		return sizeof(message);
@@ -1888,8 +1884,6 @@ size_t OnSpellPlayer(const TCmdParam4 &message, Player &player)
 	if (gbBufferMsgs == 1)
 		return sizeof(message);
 	if (!player.isOnActiveLevel())
-		return sizeof(message);
-	if (leveltype == DTYPE_TOWN)
 		return sizeof(message);
 	const uint16_t playerIdx = SDL_SwapLE16(message.wParam1);
 	if (playerIdx >= Players.size())
@@ -3309,7 +3303,7 @@ bool ValidateCmdSize(size_t requiredCmdSize, size_t maxCmdSize, size_t playerId)
 		return true;
 
 	Log("Suspiciously small packet size, dropping player {}", playerId);
-	SNetDropPlayer(playerId, LEAVE_DROP);
+	SNetDropPlayer(static_cast<uint8_t>(playerId), LEAVE_DROP);
 	return false;
 }
 

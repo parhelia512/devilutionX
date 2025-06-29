@@ -409,6 +409,8 @@ add_devilutionx_object_library(libdevilutionx_palette_blending
 )
 target_link_dependencies(libdevilutionx_palette_blending PUBLIC
   DevilutionX::SDL
+  fmt::fmt
+  libdevilutionx_strings
 )
 
 add_devilutionx_object_library(libdevilutionx_parse_int
@@ -540,7 +542,7 @@ add_devilutionx_object_library(libdevilutionx_utf8
   utils/utf8.cpp
 )
 target_link_dependencies(libdevilutionx_utf8 PRIVATE
-  SheenBidi::sheenbidi
+  SheenBidi::SheenBidi
 )
 
 if(NOSOUND)
