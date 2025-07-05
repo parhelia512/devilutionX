@@ -90,7 +90,6 @@ set(libdevilutionx_SRCS
 
   engine/render/automap_render.cpp
   engine/render/dun_render.cpp
-  engine/render/light_render.cpp
   engine/render/primitive_render.cpp
   engine/render/scrollrt.cpp
   engine/render/text_render.cpp
@@ -191,7 +190,6 @@ endif()
 
 add_devilutionx_object_library(libdevilutionx_assets
   engine/assets.cpp
-  utils/paths.cpp
 )
 target_link_dependencies(libdevilutionx_assets PUBLIC
   DevilutionX::SDL
@@ -200,6 +198,7 @@ target_link_dependencies(libdevilutionx_assets PUBLIC
   libdevilutionx_headless_mode
   libdevilutionx_game_mode
   libdevilutionx_mpq
+  libdevilutionx_paths
   libdevilutionx_sdl2_to_1_2_backports
   libdevilutionx_strings
   ${DEVILUTIONX_PLATFORM_ASSETS_LINK_LIBRARIES}
@@ -244,6 +243,16 @@ add_devilutionx_object_library(libdevilutionx_padmapper
 target_link_dependencies(libdevilutionx_padmapper PUBLIC
   libdevilutionx_controller_buttons
   libdevilutionx_options
+)
+
+add_devilutionx_object_library(libdevilutionx_paths
+  utils/paths.cpp
+)
+target_link_dependencies(libdevilutionx_paths PUBLIC
+  DevilutionX::SDL
+  libdevilutionx_file_util
+  libdevilutionx_log
+  libdevilutionx_sdl2_to_1_2_backports
 )
 
 add_devilutionx_object_library(libdevilutionx_crawl
@@ -318,6 +327,10 @@ target_link_dependencies(libdevilutionx_init PUBLIC
   libdevilutionx_config
   libdevilutionx_mpq
   libdevilutionx_options
+)
+
+add_devilutionx_object_library(libdevilutionx_light_render
+  engine/render/light_render.cpp
 )
 
 add_devilutionx_object_library(libdevilutionx_lighting
@@ -409,6 +422,8 @@ add_devilutionx_object_library(libdevilutionx_palette_blending
 )
 target_link_dependencies(libdevilutionx_palette_blending PUBLIC
   DevilutionX::SDL
+  fmt::fmt
+  libdevilutionx_strings
 )
 
 add_devilutionx_object_library(libdevilutionx_parse_int
@@ -540,7 +555,7 @@ add_devilutionx_object_library(libdevilutionx_utf8
   utils/utf8.cpp
 )
 target_link_dependencies(libdevilutionx_utf8 PRIVATE
-  SheenBidi::sheenbidi
+  SheenBidi::SheenBidi
 )
 
 if(NOSOUND)
@@ -702,6 +717,7 @@ target_link_dependencies(libdevilutionx PUBLIC
   libdevilutionx_init
   libdevilutionx_items
   libdevilutionx_level_objects
+  libdevilutionx_light_render
   libdevilutionx_lighting
   libdevilutionx_monster
   libdevilutionx_mpq

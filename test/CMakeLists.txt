@@ -59,6 +59,7 @@ set(benchmarks
   clx_render_benchmark
   crawl_benchmark
   dun_render_benchmark
+  light_render_benchmark
   palette_blending_benchmark
   path_benchmark
 )
@@ -106,6 +107,7 @@ target_link_dependencies(dun_render_benchmark PRIVATE libdevilutionx_so)
 target_link_dependencies(file_util_test PRIVATE libdevilutionx_file_util app_fatal_for_testing)
 target_link_dependencies(format_int_test PRIVATE libdevilutionx_format_int language_for_testing)
 target_link_dependencies(ini_test PRIVATE libdevilutionx_ini app_fatal_for_testing)
+target_link_dependencies(light_render_benchmark PRIVATE libdevilutionx_light_render DevilutionX::SDL libdevilutionx_surface libdevilutionx_paths app_fatal_for_testing)
 target_link_dependencies(palette_blending_test PRIVATE libdevilutionx_palette_blending DevilutionX::SDL libdevilutionx_strings GTest::gmock app_fatal_for_testing)
 target_link_dependencies(palette_blending_benchmark PRIVATE libdevilutionx_palette_blending DevilutionX::SDL app_fatal_for_testing)
 target_link_dependencies(parse_int_test PRIVATE libdevilutionx_parse_int)
@@ -115,7 +117,9 @@ target_link_dependencies(path_benchmark PRIVATE libdevilutionx_pathfinding app_f
 target_link_dependencies(random_test PRIVATE libdevilutionx_random)
 target_link_dependencies(static_vector_test PRIVATE libdevilutionx_random app_fatal_for_testing)
 target_link_dependencies(str_cat_test PRIVATE libdevilutionx_strings)
-target_link_dependencies(text_render_integration_test PRIVATE libdevilutionx_so GTest::gtest GTest::gmock)
+if(NOT USE_SDL1)
+  target_link_dependencies(text_render_integration_test PRIVATE libdevilutionx_so GTest::gtest GTest::gmock)
+endif()
 target_link_dependencies(utf8_test PRIVATE libdevilutionx_utf8)
 
 target_include_directories(writehero_test PRIVATE ../3rdParty/PicoSHA2)
