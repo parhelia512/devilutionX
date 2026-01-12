@@ -15,6 +15,7 @@ void LuaInitialize();
 void LuaReloadActiveMods();
 void LuaShutdown();
 void LuaEvent(std::string_view name);
+void LuaEvent(std::string_view name, std::string_view arg);
 void LuaEvent(std::string_view name, const Player *player, int arg1, int arg2);
 void LuaEvent(std::string_view name, const Monster *monster, int arg1, int arg2);
 void LuaEvent(std::string_view name, const Player *player, uint32_t arg1);

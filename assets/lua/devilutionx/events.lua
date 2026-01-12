@@ -69,6 +69,10 @@ local events = {
   GameDrawComplete = CreateEvent(),
   __doc_GameDrawComplete = "Called every frame at the end.",
 
+  ---Called when opening a towner store. Passes the towner name as argument (e.g., "griswold", "adria", "pepin", "wirt", "cain").
+  StoreOpened = CreateEvent(),
+  __doc_StoreOpened = "Called when opening a towner store. Passes the towner name as argument.",
+
   ---Called when a Monster takes damage.
   OnMonsterTakeDamage = CreateEvent(),
   __doc_OnMonsterTakeDamage = "Called when a Monster takes damage.",

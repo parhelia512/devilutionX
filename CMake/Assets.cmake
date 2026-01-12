@@ -158,6 +158,7 @@ set(devilutionx_assets
   lua_internal/get_lua_function_signature.lua
   lua/devilutionx/events.lua
   lua/inspect.lua
+  lua/mods/adria_refills_mana/init.lua
   lua/mods/clock/init.lua
   "lua/mods/Floating Numbers - Damage/init.lua"
   "lua/mods/Floating Numbers - XP/init.lua"
