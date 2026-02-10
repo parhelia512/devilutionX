@@ -197,7 +197,7 @@ void ClearDuplicateSounds()
 	duplicateSounds.clear();
 }
 
-void snd_play_snd(TSnd *pSnd, int lVolume, int lPan)
+void snd_play_snd(TSnd *pSnd, int lVolume, int lPan, int userVolume)
 {
 	if (pSnd == nullptr || !gbSoundOn) {
 		return;
@@ -215,7 +215,7 @@ void snd_play_snd(TSnd *pSnd, int lVolume, int lPan)
 			return;
 	}
 
-	sound->PlayWithVolumeAndPan(lVolume, *GetOptions().Audio.soundVolume, lPan);
+	sound->PlayWithVolumeAndPan(lVolume, userVolume, lPan);
 	pSnd->start_tc = tc;
 }
 
@@ -387,6 +387,16 @@ int sound_get_or_set_sound_volume(int volume)
 	GetOptions().Audio.soundVolume.SetValue(volume);
 
 	return *GetOptions().Audio.soundVolume;
+}
+
+int SoundGetOrSetAudioCuesVolume(int volume)
+{
+	if (volume == 1)
+		return *GetOptions().Audio.audioCuesVolume;
+
+	GetOptions().Audio.audioCuesVolume.SetValue(volume);
+
+	return *GetOptions().Audio.audioCuesVolume;
 }
 
 void music_mute()
