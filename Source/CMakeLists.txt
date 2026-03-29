@@ -590,12 +590,8 @@ if(SUPPORTS_MPQ)
   target_link_dependencies(libdevilutionx_mpq PUBLIC
     DevilutionX::SDL
     fmt::fmt
-    tl
-    libmpq
+    mpqfs::mpqfs
     libdevilutionx_file_util
-    libdevilutionx_logged_fstream
-    libdevilutionx_pkware_encrypt
-    libdevilutionx_strings
   )
 else()
   add_library(libdevilutionx_mpq INTERFACE)
@@ -642,7 +638,7 @@ if(SUPPORTS_MPQ OR NOT NONET)
   )
   target_link_dependencies(libdevilutionx_pkware_encrypt PUBLIC
     DevilutionX::SDL
-    PKWare
+    mpqfs::mpqfs
   )
 else()
   add_library(libdevilutionx_pkware_encrypt INTERFACE)
