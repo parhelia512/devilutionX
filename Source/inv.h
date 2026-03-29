@@ -82,7 +82,7 @@ enum item_color : uint8_t {
 	// clang-format on
 };
 
-extern bool invflag;
+extern DVL_API_FOR_TEST bool invflag;
 extern const Rectangle InvRect[NUM_XY_SLOTS];
 
 void InvDrawSlotBack(const Surface &out, Point targetPosition, Size size, item_quality itemQuality);
