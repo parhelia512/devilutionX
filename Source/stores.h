@@ -13,6 +13,7 @@
 #include "engine/clx_sprite.hpp"
 #include "engine/surface.hpp"
 #include "game_mode.hpp"
+#include "items.h"
 #include "utils/attributes.h"
 #include "utils/static_vector.hpp"
 
@@ -118,5 +119,28 @@ void StoreEnter();
 void CheckStoreBtn();
 void ReleaseStoreBtn();
 bool IsPlayerInStore();
+
+/**
+ * @brief Places an item in the player's inventory, belt, or equipment.
+ * @param item The item to place.
+ * @param persistItem If true, actually place the item. If false, just check if it can be placed.
+ * @return true if the item can be/was placed.
+ */
+bool StoreAutoPlace(Item &item, bool persistItem);
+bool PlayerCanAfford(int price);
+
+/**
+ * @brief Check if Griswold will buy this item.
+ * @param item The item to check.
+ * @return true if the item can be sold to Griswold.
+ */
+bool SmithWillBuy(const Item &item);
+
+/**
+ * @brief Check if Adria will buy this item.
+ * @param item The item to check.
+ * @return true if the item can be sold to Adria.
+ */
+bool WitchWillBuy(const Item &item);
 
 } // namespace devilution
