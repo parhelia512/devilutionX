@@ -7,7 +7,11 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <optional>
+#include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include <fmt/format.h>
 
@@ -32,6 +36,7 @@
 #include "towners.h"
 #include "utils/format_int.hpp"
 #include "utils/language.h"
+#include "utils/log.hpp"
 #include "utils/str_cat.hpp"
 #include "utils/utf8.hpp"
 
@@ -67,6 +72,71 @@ int ScrollPos;
 TalkID OldActiveStore;
 /** Temporary item used to hold the item being traded */
 Item TempItem;
+
+std::vector<std::pair<std::string, std::vector<TownerDialogOption>>> ExtraTownerOptions;
+
+const char *TownerNameForTalkID(TalkID s)
+{
+	switch (s) {
+	case TalkID::Smith: return "griswold";
+	case TalkID::Witch: return "adria";
+	case TalkID::Boy: return "wirt";
+	case TalkID::Healer: return "pepin";
+	case TalkID::Storyteller: return "cain";
+	case TalkID::Tavern: return "ogden";
+	case TalkID::Drunk: return "farnham";
+	case TalkID::Barmaid: return "gillian";
+	default: return nullptr;
+	}
+}
+
+/** Finds the entry for a towner in ExtraTownerOptions, or nullptr if none. */
+static std::vector<TownerDialogOption> *FindExtraTownerOptions(std::string_view townerName)
+{
+	for (auto &[name, opts] : ExtraTownerOptions) {
+		if (name == townerName)
+			return &opts;
+	}
+	return nullptr;
+}
+
+void RegisterTownerDialogOption(std::string_view townerName,
+    std::function<std::string()> getLabel,
+    std::function<void()> onSelect)
+{
+	// Validate that the towner name is known.
+	bool found = false;
+	for (const auto &[id, shortName] : TownerShortNames) {
+		if (shortName == townerName) {
+			found = true;
+			break;
+		}
+	}
+	if (!found) {
+		LogWarn("RegisterTownerDialogOption: unknown towner name \"{}\"", townerName);
+	}
+
+	if (auto *opts = FindExtraTownerOptions(townerName); opts != nullptr) {
+		opts->push_back({ std::move(getLabel), std::move(onSelect) });
+	} else {
+		std::vector<TownerDialogOption> newOpts;
+		newOpts.push_back({ std::move(getLabel), std::move(onSelect) });
+		ExtraTownerOptions.emplace_back(std::string(townerName), std::move(newOpts));
+	}
+}
+
+/**
+ * Maps dialog line number to ExtraTownerOptions vector index for
+ * options visible in the current dialog session.
+ * Indexed by text line number (0..NumStoreLines-1).
+ */
+static std::optional<size_t> CurrentExtraOptionIndices[NumStoreLines];
+
+void ClearTownerDialogOptions()
+{
+	ExtraTownerOptions.clear();
+	std::fill(std::begin(CurrentExtraOptionIndices), std::end(CurrentExtraOptionIndices), std::nullopt);
+}
 
 namespace {
 
@@ -2217,34 +2287,8 @@ void StartStore(TalkID s)
 	ReleaseStoreBtn();
 
 	// Fire StoreOpened Lua event for main store entries
-	switch (s) {
-	case TalkID::Smith:
-		lua::StoreOpened("griswold");
-		break;
-	case TalkID::Witch:
-		lua::StoreOpened("adria");
-		break;
-	case TalkID::Boy:
-		lua::StoreOpened("wirt");
-		break;
-	case TalkID::Healer:
-		lua::StoreOpened("pepin");
-		break;
-	case TalkID::Storyteller:
-		lua::StoreOpened("cain");
-		break;
-	case TalkID::Tavern:
-		lua::StoreOpened("ogden");
-		break;
-	case TalkID::Drunk:
-		lua::StoreOpened("farnham");
-		break;
-	case TalkID::Barmaid:
-		lua::StoreOpened("gillian");
-		break;
-	default:
-		break;
-	}
+	if (const char *name = TownerNameForTalkID(s); name != nullptr)
+		lua::StoreOpened(name);
 
 	switch (s) {
 	case TalkID::Smith:
@@ -2329,6 +2373,36 @@ void StartStore(TalkID s)
 		break;
 	case TalkID::None:
 		break;
+	}
+
+	std::fill(std::begin(CurrentExtraOptionIndices), std::end(CurrentExtraOptionIndices), std::nullopt);
+	if (const char *extraTownerName = TownerNameForTalkID(s); extraTownerName != nullptr) {
+		if (auto *extraOpts = FindExtraTownerOptions(extraTownerName); extraOpts != nullptr) {
+			// Find the last selectable line (the "leave"/"say goodbye" option).
+			int lastSelectableLine = -1;
+			for (int i = NumStoreLines - 1; i >= 0; --i) {
+				if (TextLine[i].isSelectable()) {
+					lastSelectableLine = i;
+					break;
+				}
+			}
+
+			// Insert extra options into empty even-numbered lines before the leave option.
+			size_t optIdx = 0;
+			for (int line = 10; line < lastSelectableLine && optIdx < extraOpts->size(); line += 2) {
+				if (TextLine[line].hasText()) continue;
+				std::string label = (*extraOpts)[optIdx].getLabel();
+				if (!label.empty()) {
+					AddSText(0, line, label, UiFlags::ColorWhite | UiFlags::AlignCenter, true);
+					CurrentExtraOptionIndices[line] = optIdx;
+				}
+				++optIdx;
+			}
+			if (optIdx < extraOpts->size()) {
+				LogWarn("Towner \"{}\" dialog: {} extra option(s) could not be placed (no empty lines)",
+				    extraTownerName, extraOpts->size() - optIdx);
+			}
+		}
 	}
 
 	CurrentTextLine = -1;
@@ -2595,6 +2669,22 @@ void StoreEnter()
 	}
 
 	PlaySFX(SfxID::MenuSelect);
+
+	if (CurrentTextLine >= 0 && CurrentTextLine < NumStoreLines && CurrentExtraOptionIndices[CurrentTextLine].has_value()) {
+		size_t optIdx = *CurrentExtraOptionIndices[CurrentTextLine];
+		if (const char *townerName = TownerNameForTalkID(ActiveStore); townerName != nullptr) {
+			if (auto *extraOpts = FindExtraTownerOptions(townerName); extraOpts != nullptr && optIdx < extraOpts->size()) {
+				ActiveStore = TalkID::None;
+				(*extraOpts)[optIdx].onSelect();
+				// If onSelect() set ActiveStore (e.g. to open a sub-dialog), preserve it.
+				// Otherwise it stays TalkID::None (dialog closed).
+				return;
+			}
+		}
+		ActiveStore = TalkID::None;
+		return;
+	}
+
 	switch (ActiveStore) {
 	case TalkID::Smith:
 		SmithEnter();
