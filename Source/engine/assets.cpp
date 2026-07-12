@@ -1,9 +1,11 @@
 #include "engine/assets.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <memory>
 #include <string_view>
 #include <vector>
 
@@ -18,6 +20,7 @@
 
 #include "appfat.h"
 #include "game_mode.hpp"
+#include "mods/mod_identity.h"
 #include "utils/file_util.h"
 #include "utils/log.hpp"
 #include "utils/paths.h"
@@ -93,17 +96,43 @@ bool HasLogicAssetExtension(std::string_view filename)
 	return extension == ".lua" || extension == ".tsv" || extension == ".sol";
 }
 
-bool ContainsLogicAssets(const std::string &dirPath, unsigned depth)
+/**
+ * @brief Returns true if a logic-asset request could resolve to a loose file at `relativePath`.
+ */
+bool IsLoadableLogicAssetPath(std::string relativePath)
+{
+	// Asset requests use `\` as the separator.
+	std::replace(relativePath.begin(), relativePath.end(), DirectorySeparator, '\\');
+	AsciiStrToLower(relativePath);
+
+	// Lua modules are requested by module name under `lua\` (see `LoadPackageData`), including
+	// mod entry points such as `lua\mods\<name>\init.lua` that have no archive counterpart.
+	if (relativePath.starts_with("lua\\") && relativePath.ends_with(".lua"))
+		return true;
+
+	// TSV and SOL requests use fixed canonical paths.
+	MpqArchive *archive;
+	uint32_t hashIndex;
+	if (FindMpqFile(relativePath, &archive, &hashIndex))
+		return true;
+
+	std::string assetsDirPath = relativePath;
+	std::replace(assetsDirPath.begin(), assetsDirPath.end(), '\\', DirectorySeparator);
+	return FileExists((paths::AssetsPath() + assetsDirPath).c_str());
+}
+
+bool ContainsLogicAssets(const std::string &rootPath, const std::string &relativeDir, unsigned depth)
 {
 	constexpr unsigned MaxScanDepth = 16;
 	if (depth > MaxScanDepth)
 		return false;
+	const std::string dirPath = rootPath + relativeDir;
 	for (const std::string &filename : ListFiles(dirPath.c_str())) {
-		if (HasLogicAssetExtension(filename))
+		if (HasLogicAssetExtension(filename) && IsLoadableLogicAssetPath(relativeDir + filename))
 			return true;
 	}
 	for (const std::string &subdirName : ListDirectories(dirPath.c_str())) {
-		if (ContainsLogicAssets(StrCat(dirPath, subdirName, DIRECTORY_SEPARATOR_STR), depth + 1))
+		if (ContainsLogicAssets(rootPath, StrCat(relativeDir, subdirName, DIRECTORY_SEPARATOR_STR), depth + 1))
 			return true;
 	}
 	return false;
@@ -378,7 +407,7 @@ bool FindMPQ(std::span<const std::string> paths, std::string_view mpqName)
 	return false;
 }
 
-bool LoadMPQ(std::span<const std::string> paths, std::string_view mpqName, int priority, std::string_view ext = ".mpq")
+bool LoadMPQ(std::span<const std::string> paths, std::string_view mpqName, int priority, std::string_view ext = ".mpq", std::string *loadedPath = nullptr)
 {
 	std::string mpqAbsPath;
 	bool foundButFailed = false;
@@ -397,6 +426,8 @@ bool LoadMPQ(std::span<const std::string> paths, std::string_view mpqName, int p
 		if (!inserted) {
 			LogError("MPQ with priority {} is already registered, skipping {}", priority, mpqName);
 		}
+		if (loadedPath != nullptr)
+			*loadedPath = mpqAbsPath;
 		return true;
 	}
 	if (!foundButFailed) {
@@ -573,25 +604,167 @@ void UnloadModArchives()
 #endif
 }
 
+#ifndef UNPACKED_MPQS
+namespace {
+
+tl::expected<ModManifest, int32_t> ReadPackedModManifestFrom(MpqArchive &archive)
+{
+	constexpr std::string_view ManifestName = "manifest.ini";
+	if (!archive.HasFile(ManifestName))
+		return tl::make_unexpected(0);
+
+	size_t fileSize = 0;
+	int32_t error = 0;
+	std::unique_ptr<std::byte[]> data = archive.ReadFile(ManifestName, fileSize, error);
+	if (data == nullptr)
+		return tl::make_unexpected(error);
+
+	return ParseModManifest(std::string_view(reinterpret_cast<const char *>(data.get()), fileSize));
+}
+
+tl::expected<ModManifest, int32_t> ReadPackedModManifest(std::span<const std::string> paths, std::string_view modname)
+{
+	const std::string mpqName = StrCat("mods" DIRECTORY_SEPARATOR_STR, modname);
+	std::string mpqAbsPath;
+	for (const std::string &path : paths) {
+		mpqAbsPath = StrCat(path, mpqName, ".mpq");
+		if (!FileExists(mpqAbsPath))
+			continue;
+		tl::expected<MpqArchive, std::string> archive = MpqArchive::Open(mpqAbsPath.c_str());
+		if (!archive.has_value())
+			return tl::make_unexpected(0);
+		return ReadPackedModManifestFrom(*archive);
+	}
+	return tl::make_unexpected(0);
+}
+
+// Reads the mod's `manifest.ini` from its own archive (registered at `priority`) and
+// attaches the parsed metadata. Deliberately bypasses the override-capable `FindAsset`
+// pipeline so the manifest is exactly the one covered by the mod's identifying hash.
+void ReadLoadedModManifest(ModIdentifier &mod, int priority)
+{
+	auto it = MpqArchives.find(priority);
+	if (it == MpqArchives.end())
+		return;
+	MpqArchive &archive = it->second;
+	tl::expected<ModManifest, int32_t> manifest = ReadPackedModManifestFrom(archive);
+	if (manifest.has_value())
+		mod.manifest = std::move(*manifest);
+	else if (manifest.error() != 0)
+		LogError("Failed to read manifest from mod {}: error {}", mod.name, manifest.error());
+}
+
+// Reads the `requires` list from a packed mod's manifest without registering the archive, so
+// it can inform load ordering before the real load pass assigns priorities. Returns empty if
+// the mod has no packed archive, no manifest, or an unreadable one.
+std::vector<std::string> ReadPackedModRequiredMods(std::span<const std::string> paths, std::string_view modname)
+{
+	tl::expected<ModManifest, int32_t> manifest = ReadPackedModManifest(paths, modname);
+	if (!manifest.has_value())
+		return {};
+	return std::move(manifest->requiredMods);
+}
+
+} // namespace
+#endif
+
+ModManifest ReadModManifestByName(std::string_view name)
+{
+	const std::vector<std::string> searchPaths = GetMPQSearchPaths();
+	constexpr std::string_view ManifestName = "manifest.ini";
+
+	// Loose mod directory (also how UNPACKED_MPQS builds ship their mods).
+	for (const std::string &path : searchPaths) {
+		const std::string manifestPath = StrCat(path, "mods" DIRECTORY_SEPARATOR_STR, name, DIRECTORY_SEPARATOR_STR, ManifestName);
+		FILE *file = OpenFile(manifestPath.c_str(), "rb");
+		if (file == nullptr)
+			continue;
+		uintmax_t size = 0;
+		std::string contents;
+		if (GetFileSize(manifestPath.c_str(), &size) && size > 0) {
+			contents.resize(static_cast<size_t>(size));
+			if (std::fread(contents.data(), 1, contents.size(), file) != contents.size())
+				contents.clear();
+		}
+		std::fclose(file);
+		if (!contents.empty())
+			return ParseModManifest(contents);
+	}
+
+#ifndef UNPACKED_MPQS
+	// Packed mod archive.
+	tl::expected<ModManifest, int32_t> manifest = ReadPackedModManifest(searchPaths, name);
+	if (manifest.has_value())
+		return std::move(*manifest);
+#endif
+
+	return {};
+}
+
 void LoadModArchives(std::span<const std::string_view> modnames)
 {
+	ClearModIdentifiers();
+
+#ifdef UNPACKED_MPQS
+	const std::vector<std::string_view> activeMods(modnames.begin(), modnames.end());
+#else
+	// Order the active mods so every mod's declared requiredMods load first: a dependency gets a
+	// lower priority (loaded earlier, forms the base) and its dependents get higher priorities
+	// (loaded later, override it). `requires` is read from each packed mod's manifest in a
+	// pre-pass, because the real load below fixes priorities in iteration order.
+	const std::vector<std::string> searchPaths = GetMPQSearchPaths();
+	std::vector<ModDependency> deps;
+	deps.reserve(modnames.size());
+	for (const std::string_view modname : modnames)
+		deps.push_back(ModDependency { std::string(modname), ReadPackedModRequiredMods(searchPaths, modname) });
+	const std::vector<std::string> orderedNames = OrderModsByDependencies(deps);
+	const std::vector<std::string_view> activeMods(orderedNames.begin(), orderedNames.end());
+
+	// Tracks, per active mod, whether a loose override directory was found. Such mods carry no
+	// identifier (they are gated by the loose-asset integrity check) and are not built-in.
+	std::vector<bool> hasLooseOverride(activeMods.size(), false);
+#endif
+
 	std::string targetPath;
-	for (const std::string_view modname : modnames) {
+	for (size_t i = 0; i < activeMods.size(); ++i) {
+		const std::string_view modname = activeMods[i];
 		targetPath = StrCat(paths::PrefPath(), "mods" DIRECTORY_SEPARATOR_STR, modname, DIRECTORY_SEPARATOR_STR);
 		if (DirectoryExists(targetPath)) {
 			OverridePaths.emplace_back(targetPath);
+#ifndef UNPACKED_MPQS
+			hasLooseOverride[i] = true;
+#endif
 		}
 		targetPath = StrCat(paths::BasePath(), "mods" DIRECTORY_SEPARATOR_STR, modname, DIRECTORY_SEPARATOR_STR);
 		if (DirectoryExists(targetPath)) {
 			OverridePaths.emplace_back(targetPath);
+#ifndef UNPACKED_MPQS
+			hasLooseOverride[i] = true;
+#endif
 		}
 	}
 	OverridePaths.emplace_back(paths::PrefPath());
 
 	int priority = 10000;
 	auto paths = GetMPQSearchPaths();
-	for (const std::string_view modname : modnames) {
-		LoadMPQ(paths, StrCat("mods" DIRECTORY_SEPARATOR_STR, modname), priority);
+	for (size_t i = 0; i < activeMods.size(); ++i) {
+		const std::string_view modname = activeMods[i];
+		const std::string mpqName = StrCat("mods" DIRECTORY_SEPARATOR_STR, modname);
+#ifdef UNPACKED_MPQS
+		LoadMPQ(paths, mpqName, priority);
+#else
+		std::string loadedPath;
+		if (LoadMPQ(paths, mpqName, priority, ".mpq", &loadedPath)) {
+			// A packed mod: identify it by the hash of its MPQ bytes. A local packed mod
+			// deliberately shadows any built-in of the same name, so it is treated as external.
+			ModIdentifier &mod = RegisterPackedModIdentifier(modname, loadedPath.c_str());
+			ReadLoadedModManifest(mod, priority);
+		} else if (!hasLooseOverride[i]) {
+			// Neither a packed MPQ nor a loose override directory: this mod resolves purely
+			// from core archives (a built-in), so it is provenance-whitelisted.
+			RegisterBuiltinModIdentifier(modname);
+		}
+#endif
 		priority++;
 	}
 }
@@ -603,20 +776,8 @@ bool HasLooseLogicAssets()
 	return false;
 #else
 	for (const std::string &overridePath : OverridePaths) {
-		for (const std::string &filename : ListFiles(overridePath.c_str())) {
-			if (HasLogicAssetExtension(filename))
-				return true;
-		}
-		const bool isPrefPath = overridePath == paths::PrefPath();
-		for (const std::string &subdirName : ListDirectories(overridePath.c_str())) {
-			// `mods` under the pref path holds mod archives and inactive loose mods, which `FindAsset`
-			// never consults directly. Active loose mods are separate `OverridePaths` entries and are
-			// scanned via their own roots.
-			if (isPrefPath && subdirName == "mods")
-				continue;
-			if (ContainsLogicAssets(StrCat(overridePath, subdirName, DIRECTORY_SEPARATOR_STR), 1))
-				return true;
-		}
+		if (ContainsLogicAssets(overridePath, /*relativeDir=*/ {}, /*depth=*/0))
+			return true;
 	}
 	return false;
 #endif
