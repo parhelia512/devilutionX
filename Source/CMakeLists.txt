@@ -174,7 +174,12 @@ set(_optimize_in_debug_srcs
   utils/cel_to_clx.cpp
   utils/cl2_to_clx.cpp
   utils/pcx_to_clx.cpp)
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+# These COMPILE_OPTIONS are appended after the global flags, so on Amiga they
+# would otherwise override the -O1 set in CMake/platforms/amiga.cmake. m68k-amigaos
+# GCC miscompiles this rendering code at -O2.
+if(AMIGA)
+  set_source_files_properties(${_optimize_in_debug_srcs} PROPERTIES COMPILE_OPTIONS "-O1;--param=max-vartrack-size=900000000")
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   set_source_files_properties(${_optimize_in_debug_srcs} PROPERTIES COMPILE_OPTIONS "-O2;--param=max-vartrack-size=900000000")
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   set_source_files_properties(${_optimize_in_debug_srcs} PROPERTIES COMPILE_OPTIONS "-O2")
@@ -890,6 +895,8 @@ endif()
 if(AMIGA AND NOT WARPOS)
   # Works around a missing `__cmpdf2` in the hard-float libgcc multilib.
   list(APPEND libdevilutionx_SRCS platform/amiga/cmpdf2.c)
+  # Works around a missing `__xpg_strerror_r` under GCC 15's libstdc++.
+  list(APPEND libdevilutionx_SRCS platform/amiga/strerror_r.c)
 endif()
 
 if(NOT DISABLE_DEMOMODE)
